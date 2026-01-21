@@ -1,4 +1,5 @@
 .idea
 sample_data
+imgw_temperature_data
 __pycache__
 poetry.lock
