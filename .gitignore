@@ -1,4 +1,7 @@
 .idea
 sample_data
+imgw_temperature_data
+imgw/*.csv
+imgw/*.yaml
 __pycache__
 poetry.lock
