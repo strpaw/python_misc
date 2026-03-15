@@ -1,18 +1,26 @@
 """Script to dump temperature data (daily average) for given month and station.
 
-Example usage, dump data for Gdańsk Rębiechowo (station code 254180090, May for data downloaded from
-https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne/dane_meteorologiczne/terminowe/klimat (yests 2001-2025)
+Example usage, dump data for Gdańsk-Rębiechowo (station code 254180090, May for data downloaded from
+https://danepubliczne.imgw.pl/data/dane_pomiarowo_obserwacyjne/dane_meteorologiczne/terminowe/klimat
 into dir imgw_data
 
 python .\dump_month_daily_avg_temp.py -d imgw_data -m May -s 254180090
+or
+python .\dump_month_daily_avg_temp.py -d imgw_data -m May -s Gdańsk-Rębiechowo
 """
 import argparse
 from pathlib import Path
 import sys
 
+import geopandas as gpd
 import pandas as pd
 
 
+IMGW_STATIONS_WFS = ("https://imgw.isok.gov.pl/wss/INSPIRE/INSPIRE_EF_SZS_WFS"
+                    "?service=wfs"
+                    "&version=2.0.0"
+                    "&request=GetFeature"
+                    "&typeName=ef:EnvironmentalMonitoringFacility")
 MONTHS = {
     "JAN" : 1,
     "FEB" : 2,
@@ -27,6 +35,14 @@ MONTHS = {
     "NOV" : 11,
     "DEC" : 12
 }
+
+
+def arg_int_or_str(value) -> int | str:
+    try:
+        return int(value)
+    except ValueError:
+        return value
+
 
 def parse_args() -> argparse.Namespace:
     """
@@ -53,12 +69,50 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-s",
         "--station",
-        type=int,
+        type=arg_int_or_str,
         required=True,
-        help="Station code, e.g. 254180090 is Gdańsk-Rębiechowo, https://klimat.imgw.pl/pl/meta-dane/"
+        help="Station code or name, e.g. 254180090 is Gdańsk-Rębiechowo, https://klimat.imgw.pl/pl/meta-dane/"
     )
 
     return parser.parse_args()
+
+
+def prepare_stations_data() -> pd.DataFrame:
+    """
+    Prepare stations data (including station code, name) based on IMGW WFS service
+
+    :return: data frame with stations
+    """
+    print("Preparing stations data...")
+    print("Fetching data from IMGW WFS...")
+    data = gpd.read_file(
+        filename=IMGW_STATIONS_WFS,
+        columns=["name"],
+        ignore_geometry=True
+    )
+    print("Data fetched.")
+    print("Extracting station code, station name...")
+    data[["station_code", "station_name"]] = pd.DataFrame(data["name"].tolist()).iloc[:, :2]
+    data["station_name"] = data["station_name"].str.upper()
+    data.drop(columns=["name"], inplace=True)
+    print("Stations data prepared.")
+    return data
+
+
+def get_station_code(station_name: str) -> int | None:
+    """
+    Return station code (numeric).
+
+    :param station_name: station name for which code should be extracted
+    """
+    stations = prepare_stations_data()
+    station_code = stations.loc[stations["station_name"] == station_name.upper(), "station_code"].item()
+    if not station_code:
+        print(f"Station code not found for station name {station_name}")
+        sys.exit(1)
+
+    return int(station_code)
+
 
 
 def filter_files(data_dir: Path,
@@ -107,6 +161,9 @@ def get_station_data(file: Path,
 
 
 def main() -> None:
+    # Note:
+    # As GeoPandas/Pandas exercise  WFS service is used to find station code based on station name instead of using
+    # 'name' column in CSV data files
     args = parse_args()
     try:
         month = MONTHS[args.month.upper()]
@@ -114,10 +171,15 @@ def main() -> None:
         print("Invalid month")
         sys.exit(1)
 
+    station_code = None
+    match args.station:
+        case str(): station_code = get_station_code(args.station)
+        case int(): station_code = args.station
+
     data_temp_month = pd.DataFrame()
     files = filter_files(args.data_dir, month)
     for file in files:
-        data = get_station_data(file, args.station)
+        data = get_station_data(file, station_code)
         temp_day_avg = data.groupby(["day"])["temp"].mean().round(1)
         year = file.stem.split("_")[0]
         data_temp_month[year] = temp_day_avg
