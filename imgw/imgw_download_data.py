@@ -18,6 +18,9 @@ if __name__ == "__main__":
             response = requests.get(f"{config.data_base_url}/{year}/{fname}",
                                     stream=True,
                                     timeout=30)
-            with open(config.data_dir / fname, "wb") as f:
-                f.write(response.content)
-            print(f"Downloading file {fname} completed.")
+            if response.status_code == 200:
+                with open(config.data_dir / fname, "wb") as f:
+                    f.write(response.content)
+                print(f"Downloading file {fname} completed.")
+            else:
+                print(f"Failed to download file {fname}. Response status code: {response.status_code} Check if file exists.")
